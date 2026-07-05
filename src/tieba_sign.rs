@@ -575,12 +575,12 @@ pub struct TiebaSignDaemon {
 }
 
 impl TiebaSignDaemon {
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn stop(self) {
         self.cancellation.cancel();
         self.task.await.unwrap()
     }
-    #[tracing::instrument]
+    #[tracing::instrument(skip_all, fields(sign_result_send_to = ?config.sign_result_send_to()))]
     pub async fn run(
         config: TiebaSignConfig,
         emailer: actix_web::web::Data<Option<EMailer>>,
@@ -605,7 +605,7 @@ impl TiebaSignDaemon {
     }
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip_all)]
 async fn sign_daemon(
     config: TiebaSignConfig,
     mailer: Option<&EMailer>,
