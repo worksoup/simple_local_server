@@ -28,6 +28,7 @@ use reqwest::{
 };
 use serde::Deserialize;
 
+use crate::utils::{SensitiveStr, SensitiveString};
 use crate::{config::TiebaSignConfig, mailer::EMailer};
 
 #[inline(always)]
@@ -61,15 +62,15 @@ impl WithUserAgent for RequestBuilder {
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoginInfo {
     #[serde(rename = "tbs")]
-    tbs: String,
+    tbs: SensitiveString,
     #[serde(rename = "is_login")]
     is_login: i64,
 }
 
 impl LoginInfo {
     #[inline(always)]
-    pub fn tbs(&self) -> &str {
-        &self.tbs
+    pub fn tbs(&'_ self) -> SensitiveStr<'_> {
+        self.tbs.as_ref()
     }
     #[inline(always)]
     pub fn is_login(&self) -> bool {
@@ -146,7 +147,8 @@ impl Tieba {
         &mut self.liked
     }
 
-    pub async fn sign_mobile(&self, session: &Session, tbs: &str) -> SignResult {
+    #[tracing::instrument(skip(session))]
+    pub async fn sign_mobile(&self, session: &Session, tbs: SensitiveStr<'_>) -> SignResult {
         let bduss = session.config.bduss().0.as_str();
         let id = self.id.to_string();
         let timestamp = std::time::SystemTime::now()
@@ -163,7 +165,7 @@ impl Tieba {
             ("BDUSS", bduss),
             ("fid", id.as_str()),
             ("kw", self.name.as_str()),
-            ("tbs", tbs),
+            ("tbs", tbs.0),
             ("timestamp", timestamp.as_str()),
         ];
         params.sort_by_key(|(k, _v)| *k);
@@ -443,7 +445,7 @@ impl Session {
             (data.like_forum_has_more != 0).then_some(n.saturating_add(1)),
         ))
     }
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn get_all_liked_tieba(&self) -> Result<LikedTiebaList, Error> {
         let mut next_page = Some(const { NonZeroUsize::new(1).unwrap() });
         let mut likes = Vec::new();
@@ -484,7 +486,7 @@ impl Session {
         }
         Ok(r.json().await.expect("failed to get tbs response"))
     }
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn sign_liked_tieba(
         &self,
         liked_tieba: LikedTiebaList,
@@ -494,7 +496,7 @@ impl Session {
         let mut rest_tieba_sign_result = Vec::new();
         let mut this_turn_not_to_sign = Vec::new();
         for tieba in liked_tieba.0.into_iter().filter(|f| !f.signed) {
-            let result = tieba.sign_mobile(&self, login_info.tbs.as_str()).await;
+            let result = tieba.sign_mobile(&self, login_info.tbs()).await;
             match result {
                 SignResult::Ok { rank, score } => {
                     if let Some(rank) = rank {
@@ -938,10 +940,10 @@ mod tests {
         tracing::info!("{:#?}", likes);
         tracing::info!("{}", likes.len());
         let tieba = likes.iter().rfind(|s| s.id == 2633848).unwrap();
-        let result = tieba.sign_mobile(&session, tbs.tbs.as_str()).await;
+        let result = tieba.sign_mobile(&session, tbs.tbs()).await;
         tracing::info!("{}吧签到结果：{result:?}", tieba.name.as_str());
         let imliked_tieba = Tieba::new(27935890, "meme图".to_owned(), false, false);
-        let result = imliked_tieba.sign_mobile(&session, tbs.tbs.as_str()).await;
+        let result = imliked_tieba.sign_mobile(&session, tbs.tbs()).await;
         tracing::info!("{}吧签到结果：{result:?}", imliked_tieba.name.as_str());
     }
 }
