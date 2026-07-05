@@ -1,0 +1,107 @@
+// MIT License
+//
+// Copyright (c) 2026 worksoup <https://github.com/worksoup/>
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+mod config {
+    use crate::utils::SensitiveString;
+    use serde::Serialize;
+
+    #[derive(Debug, Clone, Serialize, getset2::Getset2, derive_builder::Builder)]
+    #[getset2(get_ref(pub))]
+    #[builder(name = DeEMailAccountConfig, derive(Debug, serde::Deserialize), build_fn())]
+    pub struct EMailAccountConfig {
+        #[builder_field_attr(serde(deserialize_with = "opt_url_deserialize"))]
+        #[serde(with = "crate::utils::url_serde")]
+        pub(super) server: url::Url,
+        pub(super) uname: SensitiveString,
+        pub(super) password: SensitiveString,
+        #[builder(default)]
+        pub(super) port: Option<u16>,
+    }
+
+    fn opt_url_deserialize<'de, D>(deserializer: D) -> Result<Option<url::Url>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(try_from = "Option<String>")]
+        pub struct DeUrl(Option<url::Url>);
+        impl TryFrom<Option<String>> for DeUrl {
+            type Error = url::ParseError;
+
+            #[inline]
+            fn try_from(value: Option<String>) -> Result<Self, Self::Error> {
+                if let Some(value) = value {
+                    Ok(Self(Some(url::Url::parse(&value)?)))
+                } else {
+                    Ok(Self(None))
+                }
+            }
+        }
+        <DeUrl as serde::Deserialize>::deserialize(deserializer).map(|de_url| de_url.0)
+    }
+}
+
+pub(crate) use config::DeEMailAccountConfig;
+pub use config::EMailAccountConfig;
+use getset2::Getset2;
+use lettre::{Message, SmtpTransport, Transport, transport::smtp::authentication::Credentials};
+
+#[derive(Debug, Clone, Getset2)]
+#[getset2(get_ref(pub))]
+pub struct EMailer {
+    sender_addr: lettre::Address,
+    mailer: SmtpTransport,
+}
+
+impl EMailer {
+    #[inline]
+    pub fn new(
+        EMailAccountConfig {
+            server,
+            uname,
+            password,
+            port,
+        }: EMailAccountConfig,
+    ) -> Self {
+        let mut builder = SmtpTransport::from_url(server.as_str()).unwrap();
+        if let Some(port) = port {
+            builder = builder.port(port);
+        }
+        let sender_addr = uname
+            .0
+            .parse()
+            .unwrap_or("no-replay@sl.server".parse().unwrap());
+        let cred = Credentials::new(uname.0.clone(), password.0);
+        Self {
+            sender_addr,
+            mailer: builder.credentials(cred).build(),
+        }
+    }
+
+    #[inline]
+    pub fn send(
+        &self,
+        email: &Message,
+    ) -> Result<lettre::transport::smtp::response::Response, lettre::transport::smtp::Error> {
+        self.mailer.send(email)
+    }
+}

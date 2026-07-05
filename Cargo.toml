@@ -1,0 +1,75 @@
+# MIT License
+#
+# Copyright (c) 2026 worksoup <https://github.com/worksoup/>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+[package]
+name = "simple_local_server"
+version = "0.1.0"
+edition = "2024"
+description = "Simple local server: Tieba sign daemon & tracker merger"
+license = "MIT"
+license-file = "LICENSE"
+
+[dependencies]
+actix-web = "4"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+#cookie_store = "0.22"
+derive_builder = "0.20"
+futures = "0.3"
+getset2 = "0.4"
+hex = "0.4"
+http = "1.4"
+lettre = "0.11"
+md5 = "0.8"
+moka = { version = "0.12", features = ["future"] }
+percent-encoding = "2.3"
+rand = "0.10"
+reqwest = { version = "0.13", features = ["cookies", "json", "form"] }
+reqwest_cookie_store = "0.10"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2.0"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+toml = "1.1"
+tracing = { version = "0.1", features = ["log"] }
+tracing-actix-web = "0.7"
+tracing-appender = "0.2"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "local-time"] }
+url = "2.5"
+
+[dev-dependencies]
+# for tieba sign test, need to store `BDUSS`.
+dotenvy = "0.15"
+
+[package.metadata.deb]
+maintainer-scripts = "systemd-units/"
+systemd-units = [
+    { unit-name = "sl-server", enable = false },
+]
+maintainer = "learturely <learturely@gmail.com>"
+depends = "libssl3, libgcc-s1"
+assets = [
+    ["target/release/simple_local_server", "usr/bin/", "755"],
+    ["sl-server.toml", "var/lib/sl-server/sl-server.toml", "640"],
+    ["sl-server.toml", "etc/sl-server/sl-server.toml.example", "644"],
+]
