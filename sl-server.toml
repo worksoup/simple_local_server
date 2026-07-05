@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 addr = "127.0.0.1:5139"
-log_dir = "logs"
+log_dir = "/var/lib/sl-server/logs/"
 
 [tracker_list_config]
 ttl = 30

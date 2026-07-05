@@ -65,6 +65,7 @@ maintainer-scripts = "systemd-units/"
 systemd-units = [
     { unit-name = "sl-server", enable = false },
 ]
+license-file = "LICENSE"
 maintainer = "learturely <learturely@gmail.com>"
 depends = "libssl3, libgcc-s1"
 assets = [
