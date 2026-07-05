@@ -28,7 +28,7 @@ Wants=network.target
 Type=simple
 DynamicUser=yes
 ExecStartPre=/bin/sh -c 'if [ ! -f /var/lib/sl-server/sl-server.toml ]; then install -m 640 /etc/sl-server/sl-server.toml.example /var/lib/sl-server/sl-server.toml; fi'
-ExecStart=/usr/bin/simple-local-server -c /var/lib/sl-server/sl-server.toml
+ExecStart=/usr/bin/simple_local_server -c /var/lib/sl-server/sl-server.toml
 
 NoNewPrivileges=true
 PrivateTmp=true
