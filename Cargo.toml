@@ -70,6 +70,5 @@ maintainer = "learturely <learturely@gmail.com>"
 depends = "libssl3, libgcc-s1"
 assets = [
     ["target/release/simple_local_server", "usr/bin/", "755"],
-    ["sl-server.toml", "var/lib/sl-server/sl-server.toml", "640"],
     ["sl-server.toml", "etc/sl-server/sl-server.toml.example", "644"],
 ]
