@@ -614,7 +614,7 @@ async fn sign_daemon(
         collections::HashSet,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
-    let session = Session::new(config)?;
+    let session = Session::new(config.clone())?;
     let mut login_info = session.refresh_login_info().await?;
     if !login_info.is_login() {
         return Err(Error::LoginFailed);
@@ -762,6 +762,9 @@ async fn sign_daemon(
                             .zip(rest_tieba_sign_result)
                             .chain(this_turn_not_to_sign.into_iter())
                         {
+                            if config.dont_ntfy().contains(tieba.name()) {
+                                continue;
+                            }
                             let reason = match &result {
                                 SignResult::Invalid => "贴吧无效".to_owned(),
                                 SignResult::Unfollowed => "未关注该吧".to_owned(),
@@ -942,8 +945,8 @@ mod tests {
         let tieba = likes.iter().rfind(|s| s.id == 2633848).unwrap();
         let result = tieba.sign_mobile(&session, tbs.tbs()).await;
         tracing::info!("{}吧签到结果：{result:?}", tieba.name.as_str());
-        let imliked_tieba = Tieba::new(27935890, "meme图".to_owned(), false, false);
-        let result = imliked_tieba.sign_mobile(&session, tbs.tbs()).await;
-        tracing::info!("{}吧签到结果：{result:?}", imliked_tieba.name.as_str());
+        let unfollowed_tieba = Tieba::new(27935890, "meme图".to_owned(), false, false);
+        let result = unfollowed_tieba.sign_mobile(&session, tbs.tbs()).await;
+        tracing::info!("{}吧签到结果：{result:?}", unfollowed_tieba.name.as_str());
     }
 }
