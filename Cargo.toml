@@ -26,7 +26,6 @@ version = "0.1.0"
 edition = "2024"
 description = "Simple local server: Tieba sign daemon & tracker merger"
 license = "MIT"
-license-file = "LICENSE"
 
 [dependencies]
 actix-web = "4"
@@ -43,7 +42,7 @@ md5 = "0.8"
 moka = { version = "0.12", features = ["future"] }
 percent-encoding = "2.3"
 rand = "0.10"
-reqwest = { version = "0.13", features = ["cookies", "json", "form"] }
+reqwest = { version = "0.13", default-features = false, features = ["charset", "system-proxy", "native-tls", "http2", "cookies", "json", "form"] }
 reqwest_cookie_store = "0.10"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2.0"
