@@ -331,7 +331,7 @@ impl Session {
     const I_TIEBA: &str = "https://tieba.baidu.com/i/i/forum";
     const HOME_SIDEBAR_LEFT: &str = "https://tieba.baidu.com/c/f/pc/homeSidebarLeft";
 
-    #[tracing::instrument(skip_all, fields(bduss_len = config.bduss().to_string()))]
+    #[tracing::instrument]
     pub fn new(config: TiebaSignConfig) -> Result<Self, reqwest::Error> {
         let mut cookie_store = reqwest_cookie_store::CookieStore::default();
         Self::set_bduss(&config, &mut cookie_store);
@@ -368,7 +368,7 @@ impl Session {
             .unwrap();
     }
 
-    #[tracing::instrument(skip(self), name = "get_tbs", err)]
+    #[tracing::instrument(skip(self))]
     pub async fn get_liked_tieba_list_pn(
         &self,
         n: NonZeroUsize,
@@ -445,7 +445,7 @@ impl Session {
             (data.like_forum_has_more != 0).then_some(n.saturating_add(1)),
         ))
     }
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), fields(config = ?self.config), err)]
     pub async fn get_all_liked_tieba(&self) -> Result<LikedTiebaList, Error> {
         let mut next_page = Some(const { NonZeroUsize::new(1).unwrap() });
         let mut likes = Vec::new();
@@ -462,7 +462,7 @@ impl Session {
         Ok(LikedTiebaList(likes))
     }
 
-    #[tracing::instrument(skip(self), name = "get_tbs", err)]
+    #[tracing::instrument(skip(self), fields(config = ?self.config), err)]
     pub async fn refresh_login_info(&self) -> Result<LoginInfo, reqwest::Error> {
         tracing::debug!("请求 TBS 接口");
         let r = self
@@ -486,7 +486,7 @@ impl Session {
         }
         Ok(r.json().await.expect("failed to get tbs response"))
     }
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), fields(config = ?self.config))]
     pub async fn sign_liked_tieba(
         &self,
         liked_tieba: LikedTiebaList,
