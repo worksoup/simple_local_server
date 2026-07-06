@@ -30,52 +30,13 @@
 use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
-    time::Duration,
 };
 
 use actix_web::web;
 use moka::future::Cache;
-use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::error::ResultUtils;
-
-/// 带有TTL配置的URL结构体
-/// 用于序列化/反序列化配置时表示URL及其缓存时间
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct UrlWithTTL {
-    /// Tracker列表源的URL
-    #[serde(with = "crate::utils::url_serde")]
-    url: url::Url,
-    /// 可选的TTL(生存时间)，单位为秒
-    /// None表示使用全局默认TTL
-    ttl: Option<u64>,
-}
-
-/// 服务配置结构体
-/// 定义了所有Tracker列表源的URL和对应的缓存策略
-/// 使用#[serde(from/to)]自定义序列化行为，便于配置文件处理
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(into = "SerConfig")]
-#[serde(from = "DeConfig")]
-pub struct Config {
-    /// 默认的缓存生存时间(Duration格式)
-    ttl: Duration,
-    /// Tracker列表源配置
-    /// Key: Tracker列表源的URL
-    /// Value: 可选的特定缓存时间，None表示使用全局ttl
-    urls: HashMap<url::Url, Option<Duration>>,
-}
-
-impl Default for Config {
-    /// 默认配置实现
-    /// 预设三个常用的公开Tracker列表源，使用30秒默认缓存时间
-    #[inline]
-    fn default() -> Self {
-        info!("正在初始化默认Tracker列表配置。");
-        DeConfig::default().into()
-    }
-}
+use crate::{config::TrackerMergerConfig, error::ResultUtils};
 
 /// 应用程序状态结构体
 /// 包含所有Tracker列表源的缓存实例
@@ -92,15 +53,15 @@ impl State {
     /// 根据配置创建新的状态实例
     /// 为每个配置的URL源初始化缓存
     #[instrument(name = "初始化Tracker列表状态", skip(config))]
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &TrackerMergerConfig) -> Self {
         info!("正在初始化Tracker列表状态");
         let mut caches = HashMap::new();
         let mut cache_count = 0;
 
         // 为每个URL源创建缓存实例
-        for (url, ttl) in &config.urls {
+        for (url, ttl) in config.urls() {
             // 使用URL特定的TTL或全局默认TTL
-            let ttl = ttl.unwrap_or(config.ttl);
+            let ttl = ttl.unwrap_or(config.ttl().clone());
             // 构建缓存：设置TTL和最大容量
             let cache = Cache::builder()
                 .time_to_live(ttl) // 缓存生存时间
@@ -211,11 +172,11 @@ impl State {
 #[instrument(
     name = "处理Tracker列表请求",
     skip(config, state),
-    fields(config_sources = config.urls.len())
+    fields(config_sources = config.urls().len())
 )]
 #[actix_web::get("/tracker_list")]
 async fn tracker_list(
-    config: web::Data<Config>,
+    config: web::Data<TrackerMergerConfig>,
     state: web::Data<State>,
 ) -> impl actix_web::Responder {
     info!("收到Tracker列表请求");
@@ -225,7 +186,7 @@ async fn tracker_list(
     let mut requests = Vec::new();
 
     // 为每个配置的URL源创建异步获取任务
-    for url in config.get_ref().urls.keys() {
+    for url in config.get_ref().urls().keys() {
         debug!("准备从 {} 获取Tracker列表", url);
         let job = state.get_tracker_list(&client, url);
         requests.push(job);
@@ -279,231 +240,4 @@ async fn tracker_list(
     actix_web::HttpResponse::Ok()
         .content_type("text/plain; charset=utf-8")
         .body(result_text)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, derive_builder::Builder)]
-#[builder(
-    private,
-    name = "DeConfig",
-    derive(Debug, serde::Deserialize),
-    build_fn(
-        private,
-        error = std::convert::Infallible
-    )
-)]
-struct SerConfig {
-    /// TTL以秒为单位（便于配置文件读写）
-    #[builder(default = 30)]
-    ttl: u64,
-    /// URL列表，包含TTL配置
-    #[builder(
-        default = [
-            "https://fastly.jsdelivr.net/gh/ngosang/trackerslist/trackers_best_ip.txt",
-            "https://fastly.jsdelivr.net/gh/ngosang/trackerslist/trackers_best.txt",
-            "https://fastly.jsdelivr.net/gh/XIU2/TrackersListCollection/best.txt",
-        ]
-        .into_iter()
-        .map(|url| {
-            debug!("序列化Tracker源: {}", url);
-            UrlWithTTL {
-                url: url.parse::<url::Url>().expect("字面件构建失败。"),
-                ttl: None,
-            }
-        })
-        .collect()
-    )]
-    urls: Vec<UrlWithTTL>,
-}
-
-/// 用于序列化时将Duration转换为秒数
-impl From<Config> for SerConfig {
-    #[inline]
-    fn from(value: Config) -> Self {
-        let Config { urls, ttl } = value;
-        info!("序列化Tracker列表配置，默认TTL: {}秒", ttl.as_secs());
-        Self {
-            // 将HashMap转换为Vec，并将Duration转换为秒数
-            urls: urls
-                .into_iter()
-                .map(|(url, duration)| {
-                    debug!("序列化Tracker源: {}", url);
-                    UrlWithTTL {
-                        url,
-                        ttl: duration.map(|d| d.as_secs()), // Duration -> u64 seconds
-                    }
-                })
-                .collect(),
-            ttl: ttl.as_secs(), // Duration -> u64 seconds
-        }
-    }
-}
-
-impl From<SerConfig> for Config {
-    #[inline]
-    fn from(SerConfig { urls, ttl }: SerConfig) -> Self {
-        info!("反序列化Tracker列表配置，默认TTL: {}秒", ttl);
-        Self {
-            // 将Vec转换为HashMap，并将秒数转换为Duration
-            urls: urls
-                .into_iter()
-                .map(|UrlWithTTL { url, ttl }| {
-                    debug!("反序列化Tracker源: {}", url);
-                    (url, ttl.map(Duration::from_secs)) // u64 seconds -> Duration
-                })
-                .collect(),
-            ttl: Duration::from_secs(ttl), // u64 seconds -> Duration
-        }
-    }
-}
-
-impl From<DeConfig> for Config {
-    #[inline]
-    fn from(config: DeConfig) -> Self {
-        config.build().expect("unreachable.").into()
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-    use url::Url;
-
-    // 辅助函数：创建一个简单的测试用Config
-    fn test_config() -> Config {
-        let mut urls = HashMap::new();
-        urls.insert(
-            Url::parse("https://example.com/trackers.txt").expect("字面件构建失败。"),
-            Some(Duration::from_secs(120)),
-        );
-        urls.insert(
-            Url::parse("https://example.org/list.txt").expect("字面件构建失败。"),
-            None, // 使用全局ttl
-        );
-        Config {
-            ttl: Duration::from_secs(60),
-            urls,
-        }
-    }
-
-    #[test]
-    fn test_url_with_ttl_serde_roundtrip() {
-        let original = UrlWithTTL {
-            url: Url::parse("https://tracker.example.com/announce").expect("字面件构建失败。"),
-            ttl: Some(300),
-        };
-
-        let toml_str = toml::to_string(&original).expect("序列化失败");
-        let deserialized: UrlWithTTL = toml::from_str(&toml_str).expect("反序列化失败");
-
-        assert_eq!(original.url, deserialized.url);
-        assert_eq!(original.ttl, deserialized.ttl);
-    }
-
-    #[test]
-    fn test_url_with_ttl_deserialize_without_ttl() {
-        let toml_str = r#"url = "https://example.com/list.txt""#;
-        let deserialized: UrlWithTTL = toml::from_str(toml_str).expect("反序列化失败");
-
-        assert_eq!(deserialized.url.as_str(), "https://example.com/list.txt");
-        assert!(deserialized.ttl.is_none());
-    }
-
-    #[test]
-    fn test_config_serialization_roundtrip() {
-        let config = test_config();
-
-        // 序列化为 TOML
-        let toml_str = toml::to_string_pretty(&config).expect("序列化失败");
-        println!("序列化结果:\n{}", toml_str);
-
-        // 反序列化回 Config
-        let deserialized: Config = toml::from_str(&toml_str).expect("反序列化失败");
-
-        // 验证字段
-        assert_eq!(config.ttl, deserialized.ttl);
-        assert_eq!(config.urls.len(), deserialized.urls.len());
-
-        for (url, ttl) in &config.urls {
-            let deser_ttl = deserialized.urls.get(url).expect("缺少预期的URL");
-            assert_eq!(ttl, deser_ttl, "URL {} 的TTL不匹配", url);
-        }
-    }
-
-    #[test]
-    fn test_config_default_serde() {
-        let config = Config::default();
-
-        let toml_str = toml::to_string(&config).expect("默认配置序列化失败");
-        let deserialized: Config = toml::from_str(&toml_str).expect("默认配置反序列化失败");
-
-        assert_eq!(config.ttl, deserialized.ttl);
-        assert_eq!(config.urls.len(), deserialized.urls.len());
-    }
-
-    #[test]
-    fn test_config_deserialize_from_custom_format() {
-        // 模拟手动编写的 TOML 配置
-        let toml_str = r#"
-ttl = 90
-
-[[urls]]
-url = "https://a.com/trackers.txt"
-ttl = 30
-
-[[urls]]
-url = "https://b.com/best.txt"
-"#;
-
-        let config: Config = toml::from_str(toml_str).expect("反序列化失败");
-
-        assert_eq!(config.ttl, Duration::from_secs(90));
-        assert_eq!(config.urls.len(), 2);
-
-        let url_a = Url::parse("https://a.com/trackers.txt").expect("字面件构建失败。");
-        let url_b = Url::parse("https://b.com/best.txt").expect("字面件构建失败。");
-
-        assert_eq!(config.urls[&url_a], Some(Duration::from_secs(30)));
-        assert_eq!(config.urls[&url_b], None); // 未指定ttl，使用全局默认
-    }
-
-    #[test]
-    fn test_config_deserialize_invalid_url_error() {
-        let toml_str = r#"
-ttl = 60
-
-[[urls]]
-url = "not a valid url"
-ttl = 10
-"#;
-
-        let result: Result<Config, _> = toml::from_str(toml_str);
-        assert!(result.is_err(), "反序列化无效URL应当失败");
-    }
-
-    #[test]
-    fn test_config_conversion_identity() {
-        let config = test_config();
-        let serde_config: SerConfig = config.clone().into();
-        let config_back: Config = serde_config.into();
-
-        assert_eq!(config.ttl, config_back.ttl);
-        assert_eq!(config.urls.len(), config_back.urls.len());
-        for (url, ttl) in &config.urls {
-            assert_eq!(ttl, config_back.urls.get(url).expect("字面件构建失败。"));
-        }
-    }
-
-    #[test]
-    fn test_empty_config_serde() {
-        let config = Config {
-            ttl: Duration::from_secs(10),
-            urls: HashMap::new(),
-        };
-
-        let toml_str = toml::to_string(&config).expect("序列化失败");
-        let deserialized: Config = toml::from_str(&toml_str).expect("反序列化失败");
-
-        assert!(deserialized.urls.is_empty());
-        assert_eq!(deserialized.ttl, Duration::from_secs(10));
-    }
 }

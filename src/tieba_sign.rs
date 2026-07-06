@@ -20,13 +20,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::{fmt::Display, num::NonZeroUsize, sync::Arc};
-
+use getset2::Getset2;
 use reqwest::{
     Client, IntoUrl, Method, RequestBuilder, Url,
     header::{HeaderValue, USER_AGENT},
 };
 use serde::Deserialize;
+use std::{fmt::Display, num::NonZeroUsize, sync::Arc};
 
 use crate::{
     config::TiebaSignConfig,
@@ -81,11 +81,15 @@ impl LoginInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getset2)]
+#[getset2(get_ref(pub), get_mut(pub))]
 pub struct Tieba {
+    #[getset2(get_copy(pub))]
     id: i64,
     name: String,
+    #[getset2(get_copy(pub))]
     signed: bool,
+    #[getset2(get_copy(pub))]
     liked: bool,
 }
 
@@ -118,36 +122,6 @@ impl Tieba {
             signed,
             liked,
         }
-    }
-
-    #[inline(always)]
-    pub fn name(&self) -> &String {
-        &self.name
-    }
-
-    #[inline(always)]
-    pub fn signed(&self) -> bool {
-        self.signed
-    }
-
-    #[inline(always)]
-    pub fn liked(&self) -> bool {
-        self.liked
-    }
-
-    #[inline(always)]
-    pub fn name_mut(&mut self) -> &mut String {
-        &mut self.name
-    }
-
-    #[inline(always)]
-    pub fn signed_mut(&mut self) -> &mut bool {
-        &mut self.signed
-    }
-
-    #[inline(always)]
-    pub fn liked_mut(&mut self) -> &mut bool {
-        &mut self.liked
     }
 
     #[tracing::instrument(skip(session))]
@@ -232,9 +206,11 @@ impl Tieba {
         }
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getset2)]
+#[getset2(get_ref(pub), get_mut(pub))]
 pub struct LikedTiebaListPN {
     list: Vec<Tieba>,
+    #[getset2(get_copy(pub))]
     next_page: Option<NonZeroUsize>,
 }
 
@@ -242,25 +218,6 @@ impl LikedTiebaListPN {
     #[inline(always)]
     pub const fn new(list: Vec<Tieba>, next_page: Option<NonZeroUsize>) -> Self {
         Self { list, next_page }
-    }
-    #[inline(always)]
-    pub const fn list(&self) -> &Vec<Tieba> {
-        &self.list
-    }
-
-    #[inline(always)]
-    pub const fn next_page(&self) -> Option<NonZeroUsize> {
-        self.next_page
-    }
-
-    #[inline(always)]
-    pub fn list_mut(&mut self) -> &mut Vec<Tieba> {
-        &mut self.list
-    }
-
-    #[inline(always)]
-    pub fn next_page_mut(&mut self) -> &mut Option<NonZeroUsize> {
-        &mut self.next_page
     }
 }
 #[derive(Debug, thiserror::Error)]
@@ -495,7 +452,7 @@ impl Session {
         let mut rest = Vec::new();
         let mut rest_tieba_sign_result = Vec::new();
         let mut this_turn_not_to_sign = Vec::new();
-        for tieba in liked_tieba.0.into_iter().filter(|f| !f.signed) {
+        for tieba in liked_tieba.0.into_iter().filter(|f| !f.signed()) {
             let result = tieba.sign_mobile(self, login_info.tbs()).await;
             match result {
                 SignResult::Ok { rank, score } => {
@@ -583,7 +540,7 @@ impl TiebaSignDaemon {
         let join_handle = tokio::spawn(async move {
             tokio::select! {
                 e = sign_daemon(config, (**emailer).as_ref()) => {
-                    let e = e.expect("unreachable.");
+                    let e = e.expect_err("unreachable.");
                     tracing::error!("贴吧签到服务运行失败：`{e}`.");
                 }
                 _ = cloned_token.cancelled() => {
@@ -680,7 +637,7 @@ async fn sign_daemon(
                 let new_likes: Vec<Tieba> = all_likes
                     .0
                     .iter()
-                    .filter(|t| !last_liked_ids.contains(&(t.id, t.signed)))
+                    .filter(|t| !last_liked_ids.contains(&(t.id, t.signed())))
                     .cloned()
                     .collect();
                 LikedTiebaList(new_likes)
@@ -703,8 +660,8 @@ async fn sign_daemon(
 
                 let mut flag1 = 3;
                 let mut flag2 = 5;
-                let mut freshed = false;
-                while flag1 > 0 || (flag2 > 0 && freshed) {
+                let mut freshen = false;
+                while flag1 > 0 || (flag2 > 0 && freshen) {
                     if rest.0.is_empty() {
                         break;
                     }
@@ -721,7 +678,7 @@ async fn sign_daemon(
                     )
                     .await
                     {
-                        freshed = f;
+                        freshen = f;
                         if f {
                             flag2 -= 1;
                         } else {

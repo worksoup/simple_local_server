@@ -20,50 +20,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-pub(crate) mod config {
-    use serde::Serialize;
-
-    use crate::utils::SensitiveString;
-
-    #[derive(Debug, Clone, Serialize, getset2::Getset2, derive_builder::Builder)]
-    #[getset2(get_ref(pub))]
-    #[builder(name = DeEMailAccountConfig, derive(Debug, serde::Deserialize), build_fn())]
-    pub struct EMailAccountConfig {
-        #[builder_field_attr(serde(deserialize_with = "opt_url_deserialize"))]
-        #[serde(with = "crate::utils::url_serde")]
-        pub(super) server: url::Url,
-        pub(super) uname: SensitiveString,
-        pub(super) password: SensitiveString,
-        #[builder(default)]
-        pub(super) port: Option<u16>,
-    }
-
-    fn opt_url_deserialize<'de, D>(deserializer: D) -> Result<Option<url::Url>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(serde::Deserialize)]
-        #[serde(try_from = "Option<String>")]
-        pub struct DeUrl(Option<url::Url>);
-        impl TryFrom<Option<String>> for DeUrl {
-            type Error = url::ParseError;
-
-            #[inline]
-            fn try_from(value: Option<String>) -> Result<Self, Self::Error> {
-                if let Some(value) = value {
-                    Ok(Self(Some(url::Url::parse(&value)?)))
-                } else {
-                    Ok(Self(None))
-                }
-            }
-        }
-        <DeUrl as serde::Deserialize>::deserialize(deserializer).map(|de_url| de_url.0)
-    }
-}
-
-pub use config::EMailAccountConfig;
 use getset2::Getset2;
 use lettre::{Message, SmtpTransport, Transport, transport::smtp::authentication::Credentials};
+
+use crate::config::EMailAccountConfig;
 
 #[derive(Debug, Clone, Getset2)]
 #[getset2(get_ref(pub))]
