@@ -21,8 +21,6 @@
 // SOFTWARE.
 
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Deref;
-use tracing::field::{Field, Visit};
 
 pub mod url_serde {
     use url::Url;

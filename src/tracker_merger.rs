@@ -72,24 +72,8 @@ impl Default for Config {
     /// 预设三个常用的公开Tracker列表源，使用30秒默认缓存时间
     #[inline]
     fn default() -> Self {
-        info!("正在初始化默认Tracker列表配置");
-
-        // 添加三个预设的Tracker列表源，都使用默认缓存时间(None)
-        let urls: HashMap<url::Url, Option<Duration>> = [
-            "https://fastly.jsdelivr.net/gh/ngosang/trackerslist/trackers_best_ip.txt",
-            "https://fastly.jsdelivr.net/gh/ngosang/trackerslist/trackers_best.txt",
-            "https://fastly.jsdelivr.net/gh/XIU2/TrackersListCollection/best.txt",
-        ]
-        .into_iter()
-        .map(|s| (s.parse::<url::Url>().unwrap(), None))
-        .collect();
-
-        info!("成功添加 {} 个Tracker列表源，默认缓存时间30秒", urls.len());
-        Self {
-            // 默认30秒缓存
-            ttl: Duration::from_secs(30),
-            urls,
-        }
+        info!("正在初始化默认Tracker列表配置。");
+        DeConfig::default().into()
     }
 }
 
@@ -322,7 +306,7 @@ struct SerConfig {
         .map(|url| {
             debug!("序列化Tracker源: {}", url);
             UrlWithTTL {
-                url: url.parse::<url::Url>().unwrap(),
+                url: url.parse::<url::Url>().expect("字面件构建失败。"),
                 ttl: None,
             }
         })
@@ -375,7 +359,7 @@ impl From<SerConfig> for Config {
 impl From<DeConfig> for Config {
     #[inline]
     fn from(config: DeConfig) -> Self {
-        config.build().unwrap().into()
+        config.build().expect("unreachable.").into()
     }
 }
 #[cfg(test)]
@@ -388,11 +372,11 @@ mod tests {
     fn test_config() -> Config {
         let mut urls = HashMap::new();
         urls.insert(
-            Url::parse("https://example.com/trackers.txt").unwrap(),
+            Url::parse("https://example.com/trackers.txt").expect("字面件构建失败。"),
             Some(Duration::from_secs(120)),
         );
         urls.insert(
-            Url::parse("https://example.org/list.txt").unwrap(),
+            Url::parse("https://example.org/list.txt").expect("字面件构建失败。"),
             None, // 使用全局ttl
         );
         Config {
@@ -404,7 +388,7 @@ mod tests {
     #[test]
     fn test_url_with_ttl_serde_roundtrip() {
         let original = UrlWithTTL {
-            url: Url::parse("https://tracker.example.com/announce").unwrap(),
+            url: Url::parse("https://tracker.example.com/announce").expect("字面件构建失败。"),
             ttl: Some(300),
         };
 
@@ -475,8 +459,8 @@ url = "https://b.com/best.txt"
         assert_eq!(config.ttl, Duration::from_secs(90));
         assert_eq!(config.urls.len(), 2);
 
-        let url_a = Url::parse("https://a.com/trackers.txt").unwrap();
-        let url_b = Url::parse("https://b.com/best.txt").unwrap();
+        let url_a = Url::parse("https://a.com/trackers.txt").expect("字面件构建失败。");
+        let url_b = Url::parse("https://b.com/best.txt").expect("字面件构建失败。");
 
         assert_eq!(config.urls[&url_a], Some(Duration::from_secs(30)));
         assert_eq!(config.urls[&url_b], None); // 未指定ttl，使用全局默认
@@ -505,7 +489,7 @@ ttl = 10
         assert_eq!(config.ttl, config_back.ttl);
         assert_eq!(config.urls.len(), config_back.urls.len());
         for (url, ttl) in &config.urls {
-            assert_eq!(ttl, config_back.urls.get(url).unwrap());
+            assert_eq!(ttl, config_back.urls.get(url).expect("字面件构建失败。"));
         }
     }
 

@@ -164,11 +164,9 @@ impl TerminalOnlyLogger {
                     filename
                         .as_encoded_bytes()
                         .strip_suffix(ext.as_encoded_bytes())
-                        // NOTE: panic: unwrap: 扩展名存在，故不会失败。
-                        .unwrap()
+                        .expect("扩展名存在情况下剔除扩展名意外失败。")
                         .strip_suffix(dot.as_encoded_bytes())
-                        // NOTE: panic: unwrap: 扩展名存在，故不会失败。
-                        .unwrap(),
+                        .expect("扩展名存在情况下剔除扩展名意外失败。"),
                 )
             };
         }

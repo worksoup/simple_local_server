@@ -26,9 +26,10 @@ use actix_web::{App, HttpServer, web};
 use clap::Parser;
 use tracing_actix_web::TracingLogger;
 
-use crate::mailer::EMailer;
-use crate::tieba_sign::TiebaSignDaemon;
-use crate::{config::SummaryConfig, tracker_merger::tracker_list};
+use crate::{
+    config::SummaryConfig, mailer::EMailer, tieba_sign::TiebaSignDaemon,
+    tracker_merger::tracker_list,
+};
 
 mod alacritty_theme_updater;
 mod tieba_sign;
@@ -86,7 +87,11 @@ async fn main() -> anyhow::Result<()> {
         email_account,
         tieba_sign_config,
     } = config;
-    let mailer = web::Data::new(email_account.map(|ea| EMailer::new(ea)));
+    let mailer = web::Data::new(email_account.and_then(|ea| {
+        EMailer::new(ea)
+            .inspect_err(|e| tracing::warn!("无法构建电邮发送器：`{e}`."))
+            .ok()
+    }));
     if mailer.is_none() {
         tracing::warn!("未配置电邮发送服务。");
     }

@@ -28,8 +28,11 @@ use reqwest::{
 };
 use serde::Deserialize;
 
-use crate::utils::{SensitiveStr, SensitiveString};
-use crate::{config::TiebaSignConfig, mailer::EMailer};
+use crate::{
+    config::TiebaSignConfig,
+    mailer::EMailer,
+    utils::{SensitiveStr, SensitiveString},
+};
 
 #[inline(always)]
 pub fn percent_encode(input: &'_ str) -> impl Display + Iterator<Item = &'_ str> {
@@ -151,11 +154,7 @@ impl Tieba {
     pub async fn sign_mobile(&self, session: &Session, tbs: SensitiveStr<'_>) -> SignResult {
         let bduss = session.config.bduss().0.as_str();
         let id = self.id.to_string();
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            .to_string();
+        let timestamp = jiff::Timestamp::now().as_second().to_string();
         let mut params = vec![
             ("_client_type", "2"),
             ("_client_version", "9.7.8.0"),
@@ -272,10 +271,8 @@ pub enum Error {
     BadRequest { err_msg: String },
     #[error("登入失败")]
     LoginFailed,
-    #[error("任务已取消")]
-    TaskCanceled,
     #[error(transparent)]
-    MailerError(#[from] lettre::transport::smtp::Error),
+    MailerErr(#[from] lettre::transport::smtp::Error),
 }
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -364,8 +361,11 @@ impl Session {
             .domain(".baidu.com")
             .build();
         cookie_store
-            .insert_raw(&cookie, &Url::parse(Self::BAIDU_DOMAIN).unwrap())
-            .unwrap();
+            .insert_raw(
+                &cookie,
+                &Url::parse(Self::BAIDU_DOMAIN).expect("字面值构建失败。"),
+            )
+            .expect("cookies 构建失败。");
     }
 
     #[tracing::instrument(skip(self))]
@@ -447,7 +447,7 @@ impl Session {
     }
     #[tracing::instrument(skip(self), fields(config = ?self.config), err)]
     pub async fn get_all_liked_tieba(&self) -> Result<LikedTiebaList, Error> {
-        let mut next_page = Some(const { NonZeroUsize::new(1).unwrap() });
+        let mut next_page = Some(const { NonZeroUsize::new(1).expect("字面值构建失败。") });
         let mut likes = Vec::new();
         while let Some(page) = next_page {
             if let Ok(mut list) = self.get_liked_tieba_list_pn(page).await {
@@ -496,7 +496,7 @@ impl Session {
         let mut rest_tieba_sign_result = Vec::new();
         let mut this_turn_not_to_sign = Vec::new();
         for tieba in liked_tieba.0.into_iter().filter(|f| !f.signed) {
-            let result = tieba.sign_mobile(&self, login_info.tbs()).await;
+            let result = tieba.sign_mobile(self, login_info.tbs()).await;
             match result {
                 SignResult::Ok { rank, score } => {
                     if let Some(rank) = rank {
@@ -551,13 +551,6 @@ impl Session {
 }
 
 #[tracing::instrument]
-fn get_new_session() -> Session {
-    let bduss = std::env::var("BDUSS").unwrap();
-    let config = TiebaSignConfig::new(bduss.into(), vec![], None);
-    Session::new(config).unwrap()
-}
-
-#[tracing::instrument]
 pub async fn random_delay<R>(range: R)
 where
     R: rand::distr::uniform::SampleRange<u64> + std::fmt::Debug,
@@ -578,7 +571,7 @@ impl TiebaSignDaemon {
     #[tracing::instrument(skip(self))]
     pub async fn stop(self) {
         self.cancellation.cancel();
-        self.task.await.unwrap()
+        self.task.await.expect("任务意外出现 panic.")
     }
     #[tracing::instrument(skip_all, fields(sign_result_send_to = ?config.sign_result_send_to()))]
     pub async fn run(
@@ -589,8 +582,8 @@ impl TiebaSignDaemon {
         let cloned_token = token.clone();
         let join_handle = tokio::spawn(async move {
             tokio::select! {
-                e = sign_daemon(config, (&**emailer).as_ref()) => {
-                    let e = e.unwrap_err();
+                e = sign_daemon(config, (**emailer).as_ref()) => {
+                    let e = e.expect("unreachable.");
                     tracing::error!("贴吧签到服务运行失败：`{e}`.");
                 }
                 _ = cloned_token.cancelled() => {
@@ -610,10 +603,7 @@ async fn sign_daemon(
     config: TiebaSignConfig,
     mailer: Option<&EMailer>,
 ) -> Result<std::convert::Infallible, Error> {
-    use std::{
-        collections::HashSet,
-        time::{Duration, SystemTime, UNIX_EPOCH},
-    };
+    use std::collections::HashSet;
     let session = Session::new(config.clone())?;
     let mut login_info = session.refresh_login_info().await?;
     if !login_info.is_login() {
@@ -621,9 +611,9 @@ async fn sign_daemon(
     }
 
     // 上次的签到列表。
-    let mut last_liked_ids: HashSet<i64> = HashSet::new();
+    let mut last_liked_ids: HashSet<(i64, bool)> = HashSet::new();
     // 上次签到时间（日）。
-    let mut last_sign_day: Option<u64> = None;
+    let mut last_sign_day: Option<_> = None;
     // 用于 5 分钟刷新登入信息的计时器。
     let mut last_login_info_refresh = current_timestamp_secs();
 
@@ -633,10 +623,10 @@ async fn sign_daemon(
     async fn check_and_refresh_login_info(
         session: &Session,
         login_info: &mut LoginInfo,
-        last_refresh: &mut u64,
+        last_refresh: &mut jiff::Timestamp,
     ) -> Result<bool, ()> {
         let now = current_timestamp_secs();
-        if now - *last_refresh > 300 {
+        if now.duration_since(*last_refresh) > jiff::SignedDuration::from_mins(5) {
             tracing::debug!("刷新登录信息……");
             match session.refresh_login_info().await {
                 Ok(li) => {
@@ -654,15 +644,8 @@ async fn sign_daemon(
         }
     }
 
-    fn current_timestamp_secs() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    }
-
-    fn day_of_timestamp(secs: u64) -> u64 {
-        secs / (24 * 60 * 60)
+    fn current_timestamp_secs() -> jiff::Timestamp {
+        jiff::Timestamp::now()
     }
 
     loop {
@@ -682,7 +665,10 @@ async fn sign_daemon(
                 break 'r#continue;
             };
 
-            let today = day_of_timestamp(current_timestamp_secs());
+            let today = current_timestamp_secs()
+                .in_tz("Asia/Shanghai")
+                .expect("failed to get today number.")
+                .day();
 
             // 2. 确定本轮需要签到的贴吧
             let to_sign = if last_sign_day != Some(today) {
@@ -694,7 +680,7 @@ async fn sign_daemon(
                 let new_likes: Vec<Tieba> = all_likes
                     .0
                     .iter()
-                    .filter(|t| !last_liked_ids.contains(&t.id))
+                    .filter(|t| !last_liked_ids.contains(&(t.id, t.signed)))
                     .cloned()
                     .collect();
                 LikedTiebaList(new_likes)
@@ -784,8 +770,8 @@ async fn sign_daemon(
                         if !failure_msgs.is_empty() {
                             match build_failure_notification_email(
                                 &failure_msgs,
-                                &mailer.sender_addr(),
-                                &send_to,
+                                mailer.sender_addr(),
+                                send_to,
                             ) {
                                 Ok(message) => {
                                     if let Err(e) = mailer.send(&message) {
@@ -813,12 +799,13 @@ async fn sign_daemon(
             }
 
             // 4. 更新状态
-            last_liked_ids.extend(all_likes.0.iter().map(|t| t.id));
+            // NOTE: HashSet 的 extend 方法会更新旧值。
+            last_liked_ids.extend(all_likes.0.iter().map(|t| (t.id, t.signed)));
             last_sign_day = Some(today);
         }
         // 5. 下次循环前等待 15 分。
         tracing::debug!("等待 15 分后进入下一轮...");
-        tokio::time::sleep(Duration::from_mins(15)).await;
+        tokio::time::sleep(std::time::Duration::from_mins(15)).await;
     }
 }
 
@@ -871,8 +858,19 @@ fn build_failure_notification_email(
 }
 #[cfg(test)]
 mod tests {
-    use crate::tieba_sign::{Tieba, get_new_session, md5_hash};
     use std::num::NonZeroUsize;
+
+    use crate::{
+        config::TiebaSignConfig,
+        tieba_sign::{Session, Tieba, md5_hash},
+    };
+
+    #[tracing::instrument]
+    fn get_new_session() -> Session {
+        let bduss = std::env::var("BDUSS").expect("此测试需设置 `BDUSS` 环境变量。");
+        let config = TiebaSignConfig::new(bduss.into(), vec![], None);
+        Session::new(config).expect("Session 构建失败。")
+    }
 
     #[test]
     fn test_md5_hash() {
@@ -915,10 +913,18 @@ mod tests {
         crate::test_utils::read_dotenv();
         crate::test_utils::init_subscriber();
         let session = get_new_session();
-        let tbs = session.refresh_login_info().await.unwrap();
+        let tbs = session
+            .refresh_login_info()
+            .await
+            .expect("刷新登入信息失败。");
         tracing::info!("{tbs:?}");
         // assert!(tbs.is_login());
-        for cookie in session.cookies.lock().unwrap().iter_any() {
+        for cookie in session
+            .cookies
+            .lock()
+            .expect("意外情况：取锁失败。")
+            .iter_any()
+        {
             tracing::info!("{cookie:?}");
         }
     }
@@ -928,9 +934,12 @@ mod tests {
         crate::test_utils::read_dotenv();
         crate::test_utils::init_subscriber();
         let session = get_new_session();
-        let tbs = session.refresh_login_info().await.unwrap();
+        let tbs = session
+            .refresh_login_info()
+            .await
+            .expect("刷新登入信息失败。");
         assert!(tbs.is_login());
-        let mut next_page = Some(NonZeroUsize::new(1).unwrap());
+        let mut next_page = Some(const { NonZeroUsize::new(1).expect("字面值构建失败。") });
         let mut likes = Vec::new();
         while let Some(page) = next_page {
             if let Ok(mut list) = session.get_liked_tieba_list_pn(page).await {
@@ -942,11 +951,19 @@ mod tests {
         }
         tracing::info!("{:#?}", likes);
         tracing::info!("{}", likes.len());
-        let tieba = likes.iter().rfind(|s| s.id == 2633848).unwrap();
+        let tieba = likes
+            .iter()
+            .rfind(|s| s.id == 2633848)
+            .expect("此测试需测试账号关注rust语言吧。");
         let result = tieba.sign_mobile(&session, tbs.tbs()).await;
         tracing::info!("{}吧签到结果：{result:?}", tieba.name.as_str());
         let unfollowed_tieba = Tieba::new(27935890, "meme图".to_owned(), false, false);
         let result = unfollowed_tieba.sign_mobile(&session, tbs.tbs()).await;
+        std::assert_matches!(
+            result,
+            crate::tieba_sign::SignResult::Unfollowed,
+            "此测试要求测试账号未关注meme图吧。"
+        );
         tracing::info!("{}吧签到结果：{result:?}", unfollowed_tieba.name.as_str());
     }
 }

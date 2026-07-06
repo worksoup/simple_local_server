@@ -24,8 +24,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::tracker_merger;
-use crate::utils::SensitiveString;
+use crate::{tracker_merger, utils::SensitiveString};
 
 #[derive(Debug, Clone, Serialize, Deserialize, getset2::Getset2, derive_builder::Builder)]
 #[getset2(get_ref(pub))]
@@ -48,7 +47,7 @@ pub struct SummaryConfig {
     pub(crate) tracker_list_config: tracker_merger::Config,
     #[builder(
         setter(strip_option),
-        field(ty = "Option<crate::mailer::DeEMailAccountConfig>",
+        field(ty = "Option<crate::mailer::config::DeEMailAccountConfig>",
         build = build_summary_config_email_account(self)
     ))]
     pub(crate) email_account: Option<crate::mailer::EMailAccountConfig>,
@@ -74,14 +73,14 @@ fn build_summary_config_tieba_sign_config(sc: &DeSummaryConfig) -> Option<TiebaS
 impl core::default::Default for SummaryConfig {
     #[inline]
     fn default() -> Self {
-        DeSummaryConfig::default().build().unwrap()
+        DeSummaryConfig::default().build().expect("unreachable.")
     }
 }
 
 impl From<DeSummaryConfig> for SummaryConfig {
     #[inline]
     fn from(de: DeSummaryConfig) -> Self {
-        de.build().unwrap()
+        de.build().expect("unreachable.")
     }
 }
 
@@ -106,7 +105,7 @@ where
     S: serde::Serializer,
 {
     if let Some(addr) = addr {
-        s.serialize_str(&addr.to_string())
+        s.serialize_str(addr.as_ref())
     } else {
         s.serialize_none()
     }

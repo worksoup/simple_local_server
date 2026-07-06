@@ -81,9 +81,19 @@ pub trait ResultUtils<T, E> {
 impl<T, E: std::fmt::Debug> ResultUtils<T, E> for Result<T, E> {
     #[inline]
     #[track_caller]
+    fn log_ignore(self) {
+        let caller = core::panic::Location::caller();
+        match self {
+            Ok(_) => tracing::debug!("`{caller}`: 值已被忽略。",),
+            Err(e) => tracing::warn!("`{caller}`: 忽略错误：{e:?}。",),
+        }
+    }
+    #[inline]
+    #[track_caller]
     fn log_panic(self) -> T {
         self.unwrap_or_else(log_panic)
     }
+
     #[inline]
     #[track_caller]
     fn log_expect(self, msg: &str) -> T {
@@ -103,16 +113,6 @@ impl<T, E: std::fmt::Debug> ResultUtils<T, E> for Result<T, E> {
     #[track_caller]
     fn log_ok(self) -> Option<T> {
         self.ok_or_else(log_none)
-    }
-
-    #[inline]
-    #[track_caller]
-    fn log_ignore(self) {
-        let caller = core::panic::Location::caller();
-        match self {
-            Ok(_) => tracing::debug!("`{caller}`: 值已被忽略。",),
-            Err(e) => tracing::warn!("`{caller}`: 忽略错误：{e:?}。",),
-        }
     }
 
     #[inline]

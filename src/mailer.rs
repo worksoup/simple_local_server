@@ -20,9 +20,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-mod config {
-    use crate::utils::SensitiveString;
+pub(crate) mod config {
     use serde::Serialize;
+
+    use crate::utils::SensitiveString;
 
     #[derive(Debug, Clone, Serialize, getset2::Getset2, derive_builder::Builder)]
     #[getset2(get_ref(pub))]
@@ -60,7 +61,6 @@ mod config {
     }
 }
 
-pub(crate) use config::DeEMailAccountConfig;
 pub use config::EMailAccountConfig;
 use getset2::Getset2;
 use lettre::{Message, SmtpTransport, Transport, transport::smtp::authentication::Credentials};
@@ -81,20 +81,26 @@ impl EMailer {
             password,
             port,
         }: EMailAccountConfig,
-    ) -> Self {
-        let mut builder = SmtpTransport::from_url(server.as_str()).unwrap();
+    ) -> Result<Self, lettre::transport::smtp::Error> {
+        let mut builder = SmtpTransport::from_url(server.as_str())?;
         if let Some(port) = port {
             builder = builder.port(port);
         }
         let sender_addr = uname
             .0
             .parse()
-            .unwrap_or("no-replay@sl.server".parse().unwrap());
+            .inspect_err(|e| {
+                tracing::warn!(
+                    "用户名（长度为 {}）无法解析为发送方信息：`{e}`, 发送可能失败。",
+                    uname.0.len()
+                )
+            })
+            .unwrap_or("no-replay@sl.server".parse().expect("字面值构建失败。"));
         let cred = Credentials::new(uname.0.clone(), password.0);
-        Self {
+        Ok(Self {
             sender_addr,
             mailer: builder.credentials(cred).build(),
-        }
+        })
     }
 
     #[inline]
