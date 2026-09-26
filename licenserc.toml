@@ -20,7 +20,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-inlineHeader = """
+[header]
+text = """
 MIT License
 
 Copyright (c) {{ props["inceptionYear"] }} {{ props["copyrightOwner"] }}
@@ -44,12 +45,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-excludes = [
-    "uchardet-git-sys/uchardet/*",
-    "uchardet-git-sys/src/bindings.rs",
-    "tests/data/*",
-]
+[files]
+excludes = ["PKGBUILD"]
 
-[properties]
+[props]
 inceptionYear = 2026
 copyrightOwner = "worksoup <https://github.com/worksoup/>"
+
+[[rules]]
+extensions = ["service"]
+style_out = "script"
